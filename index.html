@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Schedule Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        #schedule-table.preview-mode .edit-ui,
+        #schedule-table.preview-mode .insert-guide { display: none !important; }
+        #schedule-table.preview-mode .materia-input,
+        #schedule-table.preview-mode .custom-time-input { display: none; }
+        #schedule-table.preview-mode .preview-text,
+        #schedule-table.preview-mode .preview-custom-time { display: block; }
+
+        .color-picker-wrapper { position: relative; width: 20px; height: 20px; flex-shrink: 0; }
+        .color-dot { width: 100%; height: 100%; border-radius: 50%; border: 1px solid rgba(0,0,0,0.1); cursor: pointer; }
+        .color-input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+        
+        .materia-input, .preview-text {
+            width: 100%; padding: 4px; border-radius: 4px; text-align: center; font-size: 0.875rem;
+            line-height: 1.25rem; min-height: 36px; align-items: center; justify-content: center; transition: color 0.2s;
+        }
+        .materia-input { 
+            display: flex; border: 1px solid #d1d5db; background-color: transparent; 
+            resize: none; overflow: hidden;
+        }
+        .materia-input:focus { outline: 2px solid #3b82f6; background-color: rgba(255,255,255,0.8); }
+        .preview-text { 
+            display: none; font-weight: 500; white-space: normal; word-break: break-word;
+        }
+        
+        .custom-time-input, .preview-custom-time {
+            width: 100%; text-align: center; font-size: 0.75rem; line-height: 1rem; color: #4b5563;
+        }
+        .custom-time-input { padding: 2px; margin-bottom: 2px; border: 1px solid #e5e7eb; border-radius: 4px; background-color: #f9fafb; }
+        .preview-custom-time { display: none; font-weight: 600; padding-top: 2px; }
+
+        .control-btn, .action-btn {
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 9999px; width: 28px; height: 28px; font-weight: bold; flex-shrink: 0;
+            transition: background-color 0.2s, transform 0.2s;
+        }
+        .control-btn:not(:disabled):hover { transform: scale(1.1); }
+        .control-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .add-btn { background-color: #dbeafe; color: #3b82f6; font-size: 1.25rem; }
+        .delete-btn { background-color: #fee2e2; color: #ef4444; font-size: 1.5rem; line-height: 1; }
+        .time-adjust-btn { background-color: #e5e7eb; color: #4b5563; width: 20px; height: 20px; }
+        
+        th, td { min-width: 150px; position: relative; }
+        td, th { border: 1px solid #e5e7eb; transition: background-color 0.2s; }
+
+        .insert-guide {
+            position: absolute; display: none; justify-content: center; align-items: center; z-index: 10;
+        }
+        .insert-guide-col { top: 0; bottom: 0; right: -15px; width: 30px; }
+        .insert-guide-row { left: 0; right: 0; bottom: -15px; height: 30px; }
+        #schedule-table th:hover > .insert-guide-col,
+        #schedule-table tr:hover > .insert-guide-row { display: flex; }
+        .insert-guide .add-btn { box-shadow: 0 2px 10px rgba(0,0,0,0.15); }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="max-w-7xl mx-auto">
+        <div class="text-center mb-6">
+            <h1 class="text-4xl font-bold text-gray-800">Editor de Horario LR</h1>
+            <p class="text-gray-600 mt-1">By Noel L.</p>
+        </div>
+
+        <div class="flex flex-wrap justify-center items-center gap-2 sm:gap-4 mb-6 p-4 bg-white rounded-lg shadow-md">
+            <div class="flex items-center gap-2">
+                <button id="undo-btn" title="Deshacer (Ctrl+Z)" class="control-btn bg-gray-200 text-gray-700">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 15l-3-3m0 0l3-3m-3 3h8a5 5 0 015 5v0a5 5 0 01-5 5H6"></path></svg>
+                </button>
+                <button id="redo-btn" title="Rehacer (Ctrl+Y)" class="control-btn bg-gray-200 text-gray-700">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 15l3-3m0 0l-3-3m3 3H5a5 5 0 00-5 5v0a5 5 0 005 5h8"></path></svg>
+                </button>
+            </div>
+            <div class="w-full sm:w-auto h-px sm:h-8 sm:w-px bg-gray-300"></div>
+            <button id="toggle-preview-btn" class="action-btn px-4 py-2 h-auto w-auto rounded-lg text-sm font-semibold bg-blue-500 text-white shadow-sm hover:bg-blue-600">Ver Vista Previa</button>
+            <button id="generate-img-btn" class="action-btn px-4 py-2 h-auto w-auto rounded-lg text-sm font-semibold bg-green-500 text-white shadow-sm hover:bg-green-600">Generar Imagen</button>
+        </div>
+
+        <div id="schedule-container" class="overflow-x-auto bg-white rounded-lg shadow-lg">
+            <table id="schedule-table" class="w-full text-sm text-center text-gray-700 border-collapse">
+                <thead id="schedule-head"></thead>
+                <tbody id="schedule-body"></tbody>
+                <tfoot id="schedule-foot"></tfoot>
+            </table>
+        </div>
+         <div id="loading-spinner" class="hidden text-center p-4"><div role="status" class="flex justify-center items-center gap-3"><svg aria-hidden="true" class="w-8 h-8 text-gray-200 animate-spin fill-blue-600" viewBox="0 0 100 101" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z" fill="currentColor"/><path d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0492C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z" fill="currentFill"/></svg><span class="text-lg text-gray-700">Generando imagen...</span></div></div>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const scheduleHead = document.getElementById('schedule-head');
+        const scheduleBody = document.getElementById('schedule-body');
+        const scheduleFoot = document.getElementById('schedule-foot');
+        const togglePreviewBtn = document.getElementById('toggle-preview-btn');
+        const generateImgBtn = document.getElementById('generate-img-btn');
+        const scheduleTable = document.getElementById('schedule-table');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const undoBtn = document.getElementById('undo-btn');
+        const redoBtn = document.getElementById('redo-btn');
+
+        let history = [];
+        let historyIndex = -1;
+
+        let scheduleData = { headers: [], times: [], subjects: [], subjectColors: {} };
+
+        function initializeData() {
+            const initialHeaders = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"];
+            const initialTimes = ["7:00-7:45", "7:45-8:30", "8:30-9:15", "9:15-9:45", "9:45-10:30", "10:30-11:15", "11:15-12:00"];
+            const initialSubjects = [
+                ["Inglés", "Matemática", "Hora Guía (Creciendo en valores)", "Danza", "Sociales"], 
+                ["Lengua", "CC NN", "Inglés", "Sociales", "TAC"], 
+                ["Matemática", "Reforzamiento Inglés", "Sociales", "EEFF", "Ortografía"], 
+                ["Recreo", "Recreo", "Recreo", "Recreo", "Recreo"], 
+                ["CC NN", "Lectura", "Lengua", "Sociales", "AEP"], 
+                ["Sociales", "Computación", "Matemática", "CC NN", ""], 
+                ["DD-MM", "Creciendo en valores", "Caligrafía", "Matemática", ""]
+            ];
+            
+            scheduleData.headers = initialHeaders;
+            scheduleData.times = initialTimes;
+            scheduleData.subjects = initialSubjects.map(row => {
+                // Ensure every row has the same number of columns as headers
+                const fullRow = [...row];
+                while (fullRow.length < initialHeaders.length) {
+                    fullRow.push("");
+                }
+                return fullRow.map(name => ({ name: name, customTime: null }));
+            });
+
+            scheduleData.subjectColors = {'Matemática': '#fef08a','Inglés': '#c7d2fe','Lengua': '#fcd34d','Sociales': '#d8b4fe','CC NN': '#a7f3d0','Computación': '#d1d5db','E. Física': '#fca5a5','FAE': '#f9a8d4','Danza': '#f9a8d4','Hora Guía': '#a5f3fc','Formación': '#a5f3fc','Recreo': '#e5e7eb','Lectura': '#fcd34d','Creciendo en Valores': '#a5f3fc','AEP': '#6BECBF','DD-MM': '#62DA80','Caligrafía': '#fcd34d', 'Hora Guía (Creciendo en valores)': '#a5f3fc', 'Reforzamiento Inglés': '#c7d2fe', 'EEFF': '#fca5a5', 'Ortografía': '#fcd34d', 'TAC': '#d1d5db'};
+        }
+
+        function saveState() {
+            history = history.slice(0, historyIndex + 1);
+            history.push(JSON.parse(JSON.stringify(scheduleData)));
+            historyIndex++;
+            updateUndoRedoButtons();
+        }
+
+        function updateUndoRedoButtons() {
+            undoBtn.disabled = historyIndex <= 0;
+            redoBtn.disabled = historyIndex === history.length - 1;
+        }
+
+        function undo() {
+            if (historyIndex > 0) {
+                historyIndex--;
+                scheduleData = JSON.parse(JSON.stringify(history[historyIndex]));
+                renderTable();
+                updateUndoRedoButtons();
+            }
+        }
+
+        function redo() {
+            if (historyIndex < history.length - 1) {
+                historyIndex++;
+                scheduleData = JSON.parse(JSON.stringify(history[historyIndex]));
+                renderTable();
+                updateUndoRedoButtons();
+            }
+        }
+        
+        function getTextColorForBg(hexColor) {
+            if (!hexColor || hexColor.length < 7) return '#000000';
+            const r = parseInt(hexColor.slice(1, 3), 16), g = parseInt(hexColor.slice(3, 5), 16), b = parseInt(hexColor.slice(5, 7), 16);
+            return ((0.299 * r + 0.587 * g + 0.114 * b) / 255) > 0.5 ? '#000000' : '#FFFFFF';
+        }
+
+        function autoResizeTextarea(element) {
+            if (element) {
+                element.style.height = 'auto';
+                element.style.height = (element.scrollHeight) + 'px';
+            }
+        }
+
+        function renderTable() {
+            scheduleHead.innerHTML = '';
+            scheduleBody.innerHTML = '';
+            scheduleFoot.innerHTML = '';
+
+            const headerRow = document.createElement('tr');
+            headerRow.innerHTML = `<th class="p-2 align-middle bg-gray-50 font-bold text-gray-600">HORA / DÍA</th>`;
+            scheduleData.headers.forEach((headerText, colIndex) => {
+                const header = document.createElement('th');
+                header.className = 'p-1 header-cell bg-gray-50';
+                header.innerHTML = `<div class="flex items-center gap-2 justify-center">
+                    <textarea rows="1" class="materia-input font-bold uppercase" data-col="${colIndex}">${headerText}</textarea>
+                    <div class="preview-text font-bold uppercase">${headerText}</div>
+                    <button class="control-btn delete-btn edit-ui" data-col="${colIndex}" title="Eliminar día">&times;</button>
+                </div>
+                <div class="insert-guide insert-guide-col"><button class="control-btn add-btn" data-type="col" data-index="${colIndex}" title="Insertar día">+</button></div>`;
+                headerRow.appendChild(header);
+            });
+            headerRow.innerHTML += `<th class="p-1 bg-gray-50 edit-ui"><button class="control-btn add-btn" id="add-col-end" title="Añadir día al final">+</button></th>`;
+            scheduleHead.appendChild(headerRow);
+
+            scheduleData.times.forEach((time, rowIndex) => {
+                const row = document.createElement('tr');
+                const timeCell = document.createElement('th');
+                timeCell.scope = 'row';
+                timeCell.className = 'p-1 time-cell bg-gray-50';
+                timeCell.innerHTML = `<div class="flex items-center gap-2 justify-center">
+                    <textarea rows="1" class="materia-input font-semibold" data-row="${rowIndex}">${time}</textarea>
+                    <div class="preview-text font-semibold">${time}</div>
+                    <button class="control-btn delete-btn edit-ui" data-row="${rowIndex}" title="Eliminar hora">&times;</button>
+                </div>`;
+                row.appendChild(timeCell);
+
+                scheduleData.headers.forEach((_, colIndex) => {
+                    const subject = scheduleData.subjects[rowIndex]?.[colIndex] || { name: "", customTime: null };
+                    const subjectName = subject.name;
+                    const customTime = subject.customTime;
+                    const bgColor = scheduleData.subjectColors[subjectName.trim()] || '#FFFFFF';
+                    const textColor = getTextColorForBg(bgColor);
+                    
+                    const cell = document.createElement('td');
+                    cell.className = 'p-1';
+                    cell.style.backgroundColor = bgColor;
+                    cell.innerHTML = `
+                        <div class="flex flex-col items-center justify-center h-full relative p-1">
+                            <div class="custom-time-container w-full ${customTime !== null ? '' : 'hidden'}">
+                                <input type="text" class="custom-time-input" value="${customTime || ''}" placeholder="Hora Específica" data-row="${rowIndex}" data-col="${colIndex}">
+                                <div class="preview-custom-time">${customTime || ''}</div>
+                            </div>
+                            <textarea rows="1" class="materia-input" data-row="${rowIndex}" data-col="${colIndex}" style="color: ${textColor};">${subjectName}</textarea>
+                            <div class="preview-text" style="color: ${textColor};">${subjectName}</div>
+                            <div class="absolute top-1 right-1 flex flex-col gap-1 edit-ui">
+                                <button class="control-btn time-adjust-btn" title="Añadir/quitar hora específica">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                </button>
+                                <div class="color-picker-wrapper">
+                                    <div class="color-dot" style="background-color: ${bgColor};"></div>
+                                    <input type="color" class="color-input" value="${bgColor}" data-row="${rowIndex}" data-col="${colIndex}">
+                                </div>
+                            </div>
+                        </div>`;
+                    row.appendChild(cell);
+                });
+                const finalCell = document.createElement('td');
+                finalCell.className = "p-1 border-l-0 edit-ui"; 
+                finalCell.innerHTML = `<div class="insert-guide insert-guide-row"><button class="control-btn add-btn" data-type="row" data-index="${rowIndex}" title="Insertar hora">+</button></div>`;
+                row.appendChild(finalCell);
+
+                scheduleBody.appendChild(row);
+            });
+            
+            const footerRow = document.createElement('tr');
+            footerRow.className = "edit-ui";
+            footerRow.innerHTML = `<td class="p-1"><button class="control-btn add-btn" id="add-row-end" title="Añadir hora al final">+</button></td>`;
+            scheduleFoot.appendChild(footerRow);
+
+            scheduleTable.querySelectorAll('textarea').forEach(autoResizeTextarea);
+        }
+        
+        scheduleTable.addEventListener('input', e => {
+            const target = e.target;
+            if (target.matches('textarea')) {
+                autoResizeTextarea(target);
+            }
+
+            if (!target.matches('textarea, input[type="text"]')) return;
+            
+            const rowIndex = target.dataset.row;
+            const colIndex = target.dataset.col;
+
+            if (target.classList.contains('materia-input')) {
+                const subjectName = target.value;
+                scheduleData.subjects[rowIndex][colIndex].name = subjectName;
+                const cell = target.closest('td');
+                const bgColor = scheduleData.subjectColors[subjectName.trim()] || '#FFFFFF';
+                const textColor = getTextColorForBg(bgColor);
+                cell.style.backgroundColor = bgColor;
+                target.style.color = textColor;
+                const previewText = cell.querySelector('.preview-text');
+                if(previewText) previewText.style.color = textColor;
+            } else if (target.classList.contains('custom-time-input')) {
+                scheduleData.subjects[rowIndex][colIndex].customTime = target.value;
+            } else if (rowIndex) {
+                scheduleData.times[rowIndex] = target.value;
+            } else if (colIndex) {
+                scheduleData.headers[colIndex] = target.value;
+            }
+        });
+        
+        scheduleTable.addEventListener('change', e => {
+            const target = e.target;
+            if (target.matches('textarea, input[type="text"]')) { saveState(); }
+            if (target.matches('input[type="color"]')) {
+                const subjectName = scheduleData.subjects[target.dataset.row][target.dataset.col].name;
+                if (subjectName) {
+                    scheduleData.subjectColors[subjectName.trim()] = target.value;
+                    saveState();
+                    renderTable();
+                }
+            }
+        });
+
+        scheduleTable.addEventListener('click', e => {
+            const target = e.target.closest('button');
+            if (!target) return;
+            
+            let actionTaken = false;
+            let shouldRender = true;
+
+            if (target.classList.contains('delete-btn')) {
+                actionTaken = true;
+                const rowIndex = target.dataset.row;
+                const colIndex = target.dataset.col;
+                if (rowIndex) {
+                    scheduleData.times.splice(rowIndex, 1);
+                    scheduleData.subjects.splice(rowIndex, 1);
+                } else if (colIndex) {
+                    scheduleData.headers.splice(colIndex, 1);
+                    scheduleData.subjects.forEach(row => row.splice(colIndex, 1));
+                }
+            } else if (target.classList.contains('add-btn')) {
+                actionTaken = true;
+                const type = target.dataset.type;
+                const index = Number(target.dataset.index);
+                const newRowData = () => Array.from({ length: scheduleData.headers.length }, () => ({ name: "", customTime: null }));
+
+                if (type === "row") {
+                     scheduleData.times.splice(index + 1, 0, "Nueva Hora");
+                     scheduleData.subjects.splice(index + 1, 0, newRowData());
+                } else if (type === "col") {
+                    scheduleData.headers.splice(index + 1, 0, "Nuevo Día");
+                    scheduleData.subjects.forEach(row => row.splice(index + 1, 0, {name: "", customTime: null}));
+                } else if (target.id === "add-row-end") {
+                    scheduleData.times.push("Nueva Hora");
+                    scheduleData.subjects.push(newRowData());
+                } else if (target.id === "add-col-end") {
+                    scheduleData.headers.push("Nuevo Día");
+                    scheduleData.subjects.forEach(row => row.push({name: "", customTime: null}));
+                }
+            } else if (target.classList.contains('time-adjust-btn')) {
+                shouldRender = false;
+                const container = target.closest('td').querySelector('.custom-time-container');
+                const input = container.querySelector('input');
+                const rowIndex = input.dataset.row;
+                const colIndex = input.dataset.col;
+                if(container.classList.toggle('hidden')) {
+                    scheduleData.subjects[rowIndex][colIndex].customTime = null;
+                    input.value = "";
+                } else {
+                    scheduleData.subjects[rowIndex][colIndex].customTime = "";
+                    input.focus();
+                }
+                saveState();
+            }
+            
+            if (actionTaken) {
+                saveState();
+                if (shouldRender) renderTable();
+            }
+        });
+
+        undoBtn.addEventListener('click', undo);
+        redoBtn.addEventListener('click', redo);
+        document.addEventListener('keydown', e => {
+            if (e.ctrlKey && e.key === 'z') { e.preventDefault(); undo(); }
+            if (e.ctrlKey && e.key === 'y') { e.preventDefault(); redo(); }
+        });
+
+        function setPreviewMode(isPreview) {
+            scheduleTable.querySelectorAll('textarea, input[type="text"]').forEach(input => {
+                 const rowIndex = input.dataset.row;
+                 const colIndex = input.dataset.col;
+                if (input.classList.contains('materia-input')) {
+                    if (rowIndex != null && colIndex != null) scheduleData.subjects[rowIndex][colIndex].name = input.value;
+                    else if (rowIndex != null) scheduleData.times[rowIndex] = input.value;
+                    else if (colIndex != null) scheduleData.headers[colIndex] = input.value;
+                } else if (input.classList.contains('custom-time-input')) {
+                     scheduleData.subjects[rowIndex][colIndex].customTime = input.value;
+                }
+            });
+
+            if (isPreview) {
+                renderTable();
+            }
+            scheduleTable.classList.toggle('preview-mode', isPreview);
+            togglePreviewBtn.textContent = isPreview ? 'Modo Edición' : 'Ver Vista Previa';
+
+            if (isPreview) {
+                togglePreviewBtn.classList.replace('bg-blue-500', 'bg-yellow-500');
+                togglePreviewBtn.classList.replace('hover:bg-blue-600', 'hover:bg-yellow-600');
+            } else {
+                togglePreviewBtn.classList.replace('bg-yellow-500', 'bg-blue-500');
+                togglePreviewBtn.classList.replace('hover:bg-yellow-600', 'hover:bg-blue-600');
+            }
+        }
+        
+        togglePreviewBtn.addEventListener('click', () => setPreviewMode(!scheduleTable.classList.contains('preview-mode')));
+        generateImgBtn.addEventListener('click', () => {
+            const wasInEditMode = !scheduleTable.classList.contains('preview-mode');
+            setPreviewMode(true);
+            loadingSpinner.classList.remove('hidden');
+            setTimeout(() => {
+                html2canvas(scheduleTable, { scale: 2.5, backgroundColor: '#ffffff', logging: false, useCORS: true, width: scheduleTable.scrollWidth, height: scheduleTable.scrollHeight })
+                .then(canvas => {
+                    const link = document.createElement('a');
+                    link.download = 'mi-horario.png';
+                    link.href = canvas.toDataURL('image/png');
+                    link.click();
+                }).catch(err => {
+                    console.error("Error:", err);
+                    alert("Ocurrió un error al generar la imagen.");
+                }).finally(() => {
+                    loadingSpinner.classList.add('hidden');
+                    if (wasInEditMode) setPreviewMode(false);
+                });
+            }, 250);
+        });
+
+        initializeData();
+        saveState();
+        renderTable();
+    });
+    </script>
+</body>
+</html>
+
